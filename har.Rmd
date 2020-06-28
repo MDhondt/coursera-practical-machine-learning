@@ -1,0 +1,134 @@
+---
+title: "Practical Machine Learning"
+author: "Maarten Dhondt"
+date: "28-6-2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, cache = TRUE)
+options(scipen=999)
+library(caret, warn.conflicts=FALSE)
+library(randomForest, warn.conflicts=FALSE)
+library(rpart, warn.conflicts=FALSE)
+library(rpart.plot, warn.conflicts=FALSE)
+library(RColorBrewer, warn.conflicts=FALSE)
+library(rattle, warn.conflicts=FALSE)
+```
+
+## Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website [here](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).
+
+## Data
+
+The training data for this project are available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The test data are available [here](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+The data for this project come from this [source](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har). If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+## Reproduceability
+
+An overall pseudo-random number generator seed was set at 12345
+```{r}
+set.seed(12345)
+```
+
+## Getting the data
+
+```{r, results="hide"}
+trainingAll <- read.csv(url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"), na.strings=c("NA","#DIV/0!",""))
+validation <- read.csv(url("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"), na.strings=c("NA","#DIV/0!",""))
+
+str(trainingAll)
+head(trainingAll, n=5)
+```
+
+The outcome variable is classe, a factor variable with 5 levels corresponding to the the way how participants performed unilateral dumbbell biceps.
+
+* classe A: Exactly according to the specification,
+* classe B: Throwing the elbows to the front,
+* classe C: Lifting the dumbbell only halfway,
+* classe D: Lowering the dumbbell only halfway,
+* classe E: Throwing the hips to the front
+
+## Cleaning data
+
+Remove features that are irrelevant for a prediction model: X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp, new_window, and num_window. 
+```{r}
+trainingAll <- trainingAll[, -c(1:7)]
+validation <- validation[, -c(1:7)]
+```
+
+Remove features that have not enough data (60% or more NA) to be considered relevant.
+```{r}
+relevantFeatures <- colMeans(is.na(trainingAll)) < .6
+trainingAll <- trainingAll[, relevantFeatures]
+validation <- validation[, relevantFeatures]
+```
+
+Remove features that have near zero variance (none left)
+```{r}
+nearZeroVarFeatures <- nearZeroVar(trainingAll)
+#trainingAll <- trainingAll[, -nearZeroVarFeatures]
+#validation <- validation[, -nearZeroVarFeatures]
+```
+
+## Cross validation
+
+Cross validation will be performed by subsampling the original training data randomly without replacement into 2 subsamples: one for the actual training (75% of the original training data) and one for testing the model (25% of the original training data). When a model has been created on the training data and selected based on accuracy on the test data, it will be cross validated on the orignal testing data.
+
+```{r}
+inTrain <- createDataPartition(y=trainingAll$classe, p=0.75, list=FALSE)
+training <- trainingAll[inTrain, ] 
+testing <- trainingAll[-inTrain, ]
+
+dim(training)
+dim(testing)
+dim(validation)
+```
+
+## Expected out of sample error
+
+The expected accuracy is the accuracy on the validation data (the original testing data). So the expected value of the out of sample error will be the fraction of missclassified observations in the test data. Which is the quantity 1 - accuracy that can be acquired from the cross validation data.
+
+## Exploring Data
+
+```{r}
+plot(training$classe, main="Histogram of classe feature to be predicted", xlab="classe", ylab="Frequency")
+```
+
+Though classe A has a higher frequency than the other classes, all have the same order of magnitude which is what we were hoping for.
+
+# Prediction models
+
+## Decision tree
+
+```{r}
+modelDT <- rpart(classe ~ ., data=training, method="class")
+fancyRpartPlot(modelDT, sub="")
+predictionDT <- predict(modelDT, testing, type="class")
+confusionMatrix(predictionDT, testing$classe)
+```
+
+## Random forests
+
+```{r}
+modelRF <- randomForest(classe ~ ., data=training, method="class")
+predictionRF <- predict(modelRF, testing, type="class")
+confusionMatrix(predictionRF, testing$classe)
+```
+
+## Model selection
+
+As can been seen from the confusion matrices, the random forests model performed better than the decision tree model. The accuracy for random forests is 99.59% and the 95% CI was (0.9937, 0.9975), compared to the decision tree model where the accuracy was 75.14% and the 95% CI was (0.7391, 0.7635). 
+
+The expected out of sample error for the random forests model is estimated at 0.41%.
+
+# Submission
+
+Predictions for the validation data (the original testing data) with the random forest model.
+```{r}
+predict(modelRF, validation, type="class")
+```
